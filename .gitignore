@@ -39,3 +39,21 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/src/generated/prisma
+
+
+# AI / local development tools
+/.agents/
+/.claude/
+/.windsurf/
+
+# Local test CSV files
+/test-bank-statement.csv
+/combined-payment.csv
+/partial-payment.csv
+/remaining-payment.csv
+/xyz-payment.csv
+
+# Local skills metadata
+/skills-lock.json
