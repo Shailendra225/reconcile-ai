@@ -1,18 +1,15 @@
 import { db } from "@/lib/db";
 
-const BUSINESS_ID =
-  "cmtzqdk660000mw8iri2qo8m0";
-
-export async function updateOverdueInvoices() {
+export async function updateOverdueInvoices(
+  businessId: string
+) {
   const now = new Date();
 
   const result =
     await db.invoice.updateMany({
       where: {
-        businessId: BUSINESS_ID,
-
+        businessId,
         status: "SENT",
-
         dueDate: {
           lt: now,
         },

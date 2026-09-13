@@ -25,7 +25,20 @@ function formatDate(date: Date | null) {
 }
 
 export default async function InvoicesPage() {
-    await updateOverdueInvoices();
+  const business =
+  await getCurrentBusiness();
+
+if (!business) {
+  redirect("/login");
+}
+
+const BUSINESS_ID =
+  business.id;
+
+await updateOverdueInvoices(
+  BUSINESS_ID
+);
+
   const invoices =
     await db.invoice.findMany({
       where: {
