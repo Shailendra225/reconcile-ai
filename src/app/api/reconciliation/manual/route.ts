@@ -188,9 +188,9 @@ export async function POST(request: Request) {
             bankTransactionId:
               bankTransaction.id,
             amount: allocationAmount,
-            receivedAt:
+            paymentDate:
               bankTransaction.transactionDate,
-            source: "BANK",
+            source: "BANK_TRANSFER",
           },
         });
 
