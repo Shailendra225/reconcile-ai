@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
-import { getCurrentBusiness } from "@/lib/getCurrentBusiness";
-
+import { getCurrentMembership } from "@/lib/getCurrentMembership";
+import { canManageCustomers } from "@/lib/permissions";
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("en-IN", {
@@ -15,14 +15,28 @@ function formatCurrency(value: number) {
 export const dynamic = "force-dynamic";
 
 export default async function CustomersPage() {
-  const business =
-    await getCurrentBusiness();
+  // --------------------------------------------------
+  // Current workspace membership
+  // --------------------------------------------------
 
-  if (!business) {
+  const membership =
+    await getCurrentMembership();
+
+  if (!membership) {
     redirect("/login");
   }
 
-  const BUSINESS_ID = business.id;
+  const BUSINESS_ID =
+    membership.businessId;
+
+  const canManage =
+    canManageCustomers(
+      membership.role
+    );
+
+  // --------------------------------------------------
+  // Fetch customers for current workspace
+  // --------------------------------------------------
 
   const customers =
     await db.customer.findMany({
@@ -90,12 +104,14 @@ export default async function CustomersPage() {
             </p>
           </div>
 
-          <Link
-            href="/customers/new"
-            className="rounded-lg bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300"
-          >
-            + New Customer
-          </Link>
+          {canManage && (
+            <Link
+              href="/customers/new"
+              className="rounded-lg bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300"
+            >
+              + New Customer
+            </Link>
+          )}
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
@@ -229,8 +245,7 @@ export default async function CustomersPage() {
                       colSpan={5}
                       className="px-6 py-16 text-center text-sm text-slate-500"
                     >
-                      No customers
-                      found.
+                      No customers found.
                     </td>
                   </tr>
                 )}

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+
 import { db } from "@/lib/db";
-import { getCurrentBusiness } from "@/lib/getCurrentBusiness";
+import { getCurrentMembership } from "@/lib/getCurrentMembership";
+import { canManageReconciliation } from "@/lib/permissions";
 
 export async function POST(
   request: Request,
@@ -12,13 +14,13 @@ export async function POST(
 ) {
   try {
     // ==========================================
-    // AUTHENTICATED BUSINESS
+    // AUTHENTICATION + WORKSPACE MEMBERSHIP
     // ==========================================
 
-    const business =
-      await getCurrentBusiness();
+    const membership =
+      await getCurrentMembership();
 
-    if (!business) {
+    if (!membership) {
       return NextResponse.json(
         {
           success: false,
@@ -30,6 +32,33 @@ export async function POST(
       );
     }
 
+    // ==========================================
+    // ROLE PERMISSION
+    //
+    // OWNER / ADMIN / ACCOUNTANT = allowed
+    // VIEWER = blocked
+    // ==========================================
+
+    if (
+      !canManageReconciliation(
+        membership.role
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "You do not have permission to confirm reconciliation matches.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    const businessId =
+      membership.businessId;
+
     const { id } =
       await context.params;
 
@@ -37,22 +66,18 @@ export async function POST(
     // SELECTED MATCH
     // ==========================================
 
-    // Important:
-    // Match must belong to the logged-in
-    // business.
+    // Match must belong to current workspace.
     const selectedMatch =
       await db.reconciliationMatch.findFirst({
         where: {
           id,
 
           bankTransaction: {
-            businessId:
-              business.id,
+            businessId,
           },
 
           invoice: {
-            businessId:
-              business.id,
+            businessId,
           },
         },
 
@@ -105,10 +130,15 @@ export async function POST(
     const transaction =
       selectedMatch.bankTransaction;
 
-    // Extra ownership protection
+    // ==========================================
+    // EXTRA WORKSPACE PROTECTION
+    // ==========================================
+
     if (
       transaction.businessId !==
-      business.id
+        businessId ||
+      selectedMatch.invoice.businessId !==
+        businessId
     ) {
       return NextResponse.json(
         {
@@ -117,6 +147,22 @@ export async function POST(
         },
         {
           status: 403,
+        }
+      );
+    }
+
+    if (
+      transaction.direction !==
+      "CREDIT"
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Only credit transactions can be reconciled.",
+        },
+        {
+          status: 400,
         }
       );
     }
@@ -134,13 +180,11 @@ export async function POST(
           status: "SUGGESTED",
 
           bankTransaction: {
-            businessId:
-              business.id,
+            businessId,
           },
 
           invoice: {
-            businessId:
-              business.id,
+            businessId,
           },
         },
 
@@ -362,8 +406,7 @@ export async function POST(
           const payment =
             await tx.payment.create({
               data: {
-                businessId:
-                  business.id,
+                businessId,
 
                 customerId:
                   suggestedMatches[0]

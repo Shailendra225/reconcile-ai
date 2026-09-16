@@ -2,7 +2,8 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { updateOverdueInvoices } from "@/lib/updateOverdueInvoices";
 import { redirect } from "next/navigation";
-import { getCurrentBusiness } from "@/lib/getCurrentBusiness";
+import { getCurrentMembership } from "@/lib/getCurrentMembership";
+import { canManageInvoices } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -25,19 +26,41 @@ function formatDate(date: Date | null) {
 }
 
 export default async function InvoicesPage() {
-  const business =
-  await getCurrentBusiness();
+  // --------------------------------------------------
+  // Current workspace membership
+  // --------------------------------------------------
 
-if (!business) {
-  redirect("/login");
-}
+  const membership =
+    await getCurrentMembership();
 
-const BUSINESS_ID =
-  business.id;
+  if (!membership) {
+    redirect("/login");
+  }
 
-await updateOverdueInvoices(
-  BUSINESS_ID
-);
+  const BUSINESS_ID =
+    membership.businessId;
+
+  const canManage =
+    canManageInvoices(
+      membership.role
+    );
+
+  // --------------------------------------------------
+  // Update overdue invoices only when user
+  // has invoice management permission.
+  //
+  // VIEWER must remain read-only.
+  // --------------------------------------------------
+
+  if (canManage) {
+    await updateOverdueInvoices(
+      BUSINESS_ID
+    );
+  }
+
+  // --------------------------------------------------
+  // Fetch invoices for current workspace
+  // --------------------------------------------------
 
   const invoices =
     await db.invoice.findMany({
@@ -88,12 +111,14 @@ await updateOverdueInvoices(
             </p>
           </div>
 
-          <Link
-            href="/invoices/new"
-            className="rounded-lg bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300"
-          >
-            + New Invoice
-          </Link>
+          {canManage && (
+            <Link
+              href="/invoices/new"
+              className="rounded-lg bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300"
+            >
+              + New Invoice
+            </Link>
+          )}
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
@@ -128,78 +153,92 @@ await updateOverdueInvoices(
               </thead>
 
               <tbody className="divide-y divide-slate-800">
-                {invoices.map((invoice) => {
-                  const totalPaid =
-                    invoice.allocations.reduce(
-                      (total, allocation) =>
-                        total +
-                        Number(
-                          allocation.amount
-                        ),
-                      0
-                    );
-
-                  return (
-                    <tr
-                      key={invoice.id}
-                      className="transition hover:bg-slate-800/40"
-                    >
-                      <td className="px-6 py-5">
-                        <Link
-                          href={`/invoices/${invoice.id}`}
-                          className="font-semibold text-white hover:text-cyan-400"
-                        >
-                          {invoice.invoiceNumber}
-                        </Link>
-                      </td>
-
-                      <td className="px-6 py-5 text-sm text-slate-300">
-                        {invoice.customer.name}
-                      </td>
-
-                      <td className="px-6 py-5 text-sm text-slate-400">
-                        {formatDate(
-                          invoice.dueDate
-                        )}
-                      </td>
-
-                      <td className="px-6 py-5 font-medium text-white">
-                        {formatCurrency(
+                {invoices.map(
+                  (invoice) => {
+                    const totalPaid =
+                      invoice.allocations.reduce(
+                        (
+                          total,
+                          allocation
+                        ) =>
+                          total +
                           Number(
-                            invoice.totalAmount
-                          )
-                        )}
-                      </td>
+                            allocation.amount
+                          ),
+                        0
+                      );
 
-                      <td className="px-6 py-5 text-sm text-slate-300">
-                        {formatCurrency(
-                          totalPaid
-                        )}
-                      </td>
+                    return (
+                      <tr
+                        key={invoice.id}
+                        className="transition hover:bg-slate-800/40"
+                      >
+                        <td className="px-6 py-5">
+                          <Link
+                            href={`/invoices/${invoice.id}`}
+                            className="font-semibold text-white hover:text-cyan-400"
+                          >
+                            {
+                              invoice.invoiceNumber
+                            }
+                          </Link>
+                        </td>
 
-                      <td className="px-6 py-5">
-  <span
-    className={`rounded-full px-3 py-1 text-xs font-medium ${
-      invoice.status === "OVERDUE"
-        ? "bg-red-500/10 text-red-400"
-        : invoice.status === "PAID"
-        ? "bg-emerald-500/10 text-emerald-400"
-        : invoice.status === "PARTIALLY_PAID"
-        ? "bg-amber-500/10 text-amber-400"
-        : "bg-slate-800 text-slate-300"
-    }`}
-  >
-    {invoice.status.replaceAll(
-      "_",
-      " "
-    )}
-  </span>
-</td>
-                    </tr>
-                  );
-                })}
+                        <td className="px-6 py-5 text-sm text-slate-300">
+                          {
+                            invoice.customer
+                              .name
+                          }
+                        </td>
 
-                {invoices.length === 0 && (
+                        <td className="px-6 py-5 text-sm text-slate-400">
+                          {formatDate(
+                            invoice.dueDate
+                          )}
+                        </td>
+
+                        <td className="px-6 py-5 font-medium text-white">
+                          {formatCurrency(
+                            Number(
+                              invoice.totalAmount
+                            )
+                          )}
+                        </td>
+
+                        <td className="px-6 py-5 text-sm text-slate-300">
+                          {formatCurrency(
+                            totalPaid
+                          )}
+                        </td>
+
+                        <td className="px-6 py-5">
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-medium ${
+                              invoice.status ===
+                              "OVERDUE"
+                                ? "bg-red-500/10 text-red-400"
+                                : invoice.status ===
+                                  "PAID"
+                                ? "bg-emerald-500/10 text-emerald-400"
+                                : invoice.status ===
+                                  "PARTIALLY_PAID"
+                                ? "bg-amber-500/10 text-amber-400"
+                                : "bg-slate-800 text-slate-300"
+                            }`}
+                          >
+                            {invoice.status.replaceAll(
+                              "_",
+                              " "
+                            )}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  }
+                )}
+
+                {invoices.length ===
+                  0 && (
                   <tr>
                     <td
                       colSpan={6}

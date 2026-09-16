@@ -1,6 +1,34 @@
-import CsvImportForm from "@/components/CsvImportForm";
+import { redirect } from "next/navigation";
 
-export default function ImportsPage() {
+import CsvImportForm from "@/components/CsvImportForm";
+import { getCurrentMembership } from "@/lib/getCurrentMembership";
+import { canManageTransactions } from "@/lib/permissions";
+
+export default async function ImportsPage() {
+  // --------------------------------------------------
+  // Current workspace membership
+  // --------------------------------------------------
+
+  const membership =
+    await getCurrentMembership();
+
+  if (!membership) {
+    redirect("/login");
+  }
+
+  // --------------------------------------------------
+  // Permission check
+  // VIEWER cannot import bank transactions
+  // --------------------------------------------------
+
+  if (
+    !canManageTransactions(
+      membership.role
+    )
+  ) {
+    redirect("/transactions");
+  }
+
   return (
     <main className="min-h-screen bg-slate-950 px-8 py-10 text-white">
       <div className="mx-auto max-w-5xl">
@@ -34,25 +62,49 @@ export default function ImportsPage() {
             <table className="w-full text-sm">
               <thead className="bg-slate-950 text-slate-400">
                 <tr>
-                  <th className="px-4 py-3 text-left">date</th>
-                  <th className="px-4 py-3 text-left">description</th>
-                  <th className="px-4 py-3 text-left">reference</th>
-                  <th className="px-4 py-3 text-left">amount</th>
-                  <th className="px-4 py-3 text-left">direction</th>
+                  <th className="px-4 py-3 text-left">
+                    date
+                  </th>
+
+                  <th className="px-4 py-3 text-left">
+                    description
+                  </th>
+
+                  <th className="px-4 py-3 text-left">
+                    reference
+                  </th>
+
+                  <th className="px-4 py-3 text-left">
+                    amount
+                  </th>
+
+                  <th className="px-4 py-3 text-left">
+                    direction
+                  </th>
                 </tr>
               </thead>
 
               <tbody>
                 <tr className="border-t border-slate-800">
-                  <td className="px-4 py-3">2026-09-13</td>
+                  <td className="px-4 py-3">
+                    2026-09-13
+                  </td>
+
                   <td className="px-4 py-3">
                     UPI from ABC Traders
                   </td>
+
                   <td className="px-4 py-3">
                     UTR987654321
                   </td>
-                  <td className="px-4 py-3">5000</td>
-                  <td className="px-4 py-3">CREDIT</td>
+
+                  <td className="px-4 py-3">
+                    5000
+                  </td>
+
+                  <td className="px-4 py-3">
+                    CREDIT
+                  </td>
                 </tr>
               </tbody>
             </table>

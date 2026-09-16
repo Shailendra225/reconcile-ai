@@ -1,14 +1,32 @@
 import { redirect } from "next/navigation";
 
 import NewCustomerForm from "@/components/NewCustomerForm";
-import { getCurrentBusiness } from "@/lib/getCurrentBusiness";
+import { getCurrentMembership } from "@/lib/getCurrentMembership";
+import { canManageCustomers } from "@/lib/permissions";
 
 export default async function NewCustomerPage() {
-  const business =
-    await getCurrentBusiness();
+  // --------------------------------------------------
+  // Current workspace membership
+  // --------------------------------------------------
 
-  if (!business) {
+  const membership =
+    await getCurrentMembership();
+
+  if (!membership) {
     redirect("/login");
+  }
+
+  // --------------------------------------------------
+  // Permission check
+  // VIEWER cannot create customers
+  // --------------------------------------------------
+
+  if (
+    !canManageCustomers(
+      membership.role
+    )
+  ) {
+    redirect("/customers");
   }
 
   return (

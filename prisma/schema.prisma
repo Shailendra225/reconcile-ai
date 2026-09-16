@@ -43,14 +43,21 @@ enum MatchStatus {
 }
 
 model Business {
-  id        String   @id @default(cuid())
-  name      String
-  email     String?
-  phone     String?
-  currency  String   @default("INR")
+  id       String  @id @default(cuid())
+  name     String
+  email    String?
+  phone    String?
+  currency String  @default("INR")
+
+  // Business profile
+  address String?
+  city    String?
+  state   String?
+  pincode String?
+  gstin   String?
 
   ownerId String? @unique
-owner   User?   @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  owner   User?   @relation(fields: [ownerId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -62,6 +69,10 @@ owner   User?   @relation(fields: [ownerId], references: [id], onDelete: SetNull
   payments         Payment[]
   statementImports StatementImport[]
   auditLogs        AuditLog[]
+
+  members     BusinessMember[]
+  invitations TeamInvitation[]
+  subscription Subscription?
 }
 
 model Customer {
@@ -302,16 +313,22 @@ model AuditLog {
 }
 
 model User {
-  id            String    @id
+  id            String   @id
   name          String
   email         String
-  emailVerified Boolean   @default(false)
+  emailVerified Boolean  @default(false)
   image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  sessions      Session[]
-  accounts      Account[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sessions Session[]
+  accounts Account[]
+
+  // Business owned by this user
   business Business?
+
+  // Businesses where this user is a team member
+  businessMemberships BusinessMember[]
 
   @@unique([email])
   @@map("user")
@@ -363,4 +380,94 @@ model Verification {
 
   @@index([identifier])
   @@map("verification")
+}
+
+enum BusinessRole {
+  OWNER
+  ADMIN
+  ACCOUNTANT
+  VIEWER
+}
+
+model BusinessMember {
+  id String @id @default(cuid())
+
+  businessId String
+  userId     String
+
+  role BusinessRole @default(ACCOUNTANT)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([businessId, userId])
+  @@index([userId])
+  @@index([businessId])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  CANCELLED
+}
+
+model TeamInvitation {
+  id String @id @default(cuid())
+
+  email String
+  role  BusinessRole
+
+  token  String           @unique
+  status InvitationStatus @default(PENDING)
+
+  expiresAt DateTime
+
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([email])
+}
+
+enum SubscriptionPlan {
+  FREE
+  STARTER
+  PRO
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+
+model Subscription {
+  id String @id @default(cuid())
+
+  businessId String @unique
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  plan   SubscriptionPlan   @default(FREE)
+  status SubscriptionStatus @default(ACTIVE)
+
+  currentPeriodStart DateTime @default(now())
+  currentPeriodEnd   DateTime?
+
+  provider               String?
+  providerCustomerId     String?
+  providerSubscriptionId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([plan])
+  @@index([status])
 }

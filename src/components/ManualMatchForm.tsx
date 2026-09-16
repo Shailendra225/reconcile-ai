@@ -64,6 +64,35 @@ export default function ManualMatchForm({
       [invoiceId, invoices]
     );
 
+  const allocationNumber =
+    Number(allocationAmount || 0);
+
+  const remainingCredit =
+    selectedTransaction
+      ? Math.max(
+          selectedTransaction.amount -
+            allocationNumber,
+          0
+        )
+      : 0;
+
+  const invoiceBalanceAfter =
+    selectedInvoice
+      ? Math.max(
+          selectedInvoice.balance -
+            allocationNumber,
+          0
+        )
+      : 0;
+
+  const allocationIsTooHigh =
+    !!selectedTransaction &&
+    !!selectedInvoice &&
+    (allocationNumber >
+      selectedTransaction.amount ||
+      allocationNumber >
+        selectedInvoice.balance);
+
   function autoFillAmount(
     nextTransactionId: string,
     nextInvoiceId: string
@@ -91,7 +120,7 @@ export default function ManualMatchForm({
       );
 
     setAllocationAmount(
-      amount.toString()
+      amount.toFixed(2)
     );
   }
 
@@ -109,6 +138,23 @@ export default function ManualMatchForm({
     ) {
       setMessage(
         "Please select transaction, invoice and amount."
+      );
+      return;
+    }
+
+    if (
+      !Number.isFinite(allocationNumber) ||
+      allocationNumber <= 0
+    ) {
+      setMessage(
+        "Enter a valid allocation amount."
+      );
+      return;
+    }
+
+    if (allocationIsTooHigh) {
+      setMessage(
+        "Allocation cannot exceed the transaction amount or invoice balance."
       );
       return;
     }
@@ -131,7 +177,7 @@ export default function ManualMatchForm({
               transactionId,
               invoiceId,
               allocationAmount:
-                Number(allocationAmount),
+                allocationNumber,
             }),
           }
         );
@@ -145,12 +191,12 @@ export default function ManualMatchForm({
             "Manual reconciliation failed."
         );
 
-        setLoading(false);
         return;
       }
 
       setMessage(
-        "Manual match completed successfully."
+        data.message ||
+          "Manual match completed successfully."
       );
 
       setTransactionId("");
@@ -174,8 +220,10 @@ export default function ManualMatchForm({
       </h2>
 
       <p className="mt-2 text-sm text-slate-400">
-        Select a bank transaction and an
-        invoice to manually reconcile them.
+        Match an unmatched bank transaction
+        against an open invoice. Any excess
+        payment will remain as unallocated
+        customer credit.
       </p>
 
       <form
@@ -280,7 +328,7 @@ export default function ManualMatchForm({
 
           <input
             type="number"
-            min="0"
+            min="0.01"
             step="0.01"
             value={allocationAmount}
             onChange={(event) =>
@@ -291,25 +339,99 @@ export default function ManualMatchForm({
             placeholder="Enter amount"
             className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none focus:border-cyan-400"
           />
-
-          {selectedTransaction && (
-            <p className="mt-2 text-xs text-slate-500">
-              Transaction amount: ₹
-              {selectedTransaction.amount.toLocaleString(
-                "en-IN"
-              )}
-            </p>
-          )}
-
-          {selectedInvoice && (
-            <p className="mt-1 text-xs text-slate-500">
-              Invoice balance: ₹
-              {selectedInvoice.balance.toLocaleString(
-                "en-IN"
-              )}
-            </p>
-          )}
         </div>
+
+        {selectedTransaction &&
+          selectedInvoice && (
+            <div className="grid gap-3 rounded-xl border border-slate-800 bg-slate-950 p-4 md:grid-cols-2">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  Transaction Amount
+                </p>
+
+                <p className="mt-1 font-semibold">
+                  ₹
+                  {selectedTransaction.amount.toLocaleString(
+                    "en-IN"
+                  )}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  Invoice Balance
+                </p>
+
+                <p className="mt-1 font-semibold">
+                  ₹
+                  {selectedInvoice.balance.toLocaleString(
+                    "en-IN"
+                  )}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  Allocation
+                </p>
+
+                <p className="mt-1 font-semibold">
+                  ₹
+                  {allocationNumber.toLocaleString(
+                    "en-IN"
+                  )}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  Invoice Balance After
+                </p>
+
+                <p className="mt-1 font-semibold">
+                  ₹
+                  {invoiceBalanceAfter.toLocaleString(
+                    "en-IN"
+                  )}
+                </p>
+              </div>
+
+              <div className="md:col-span-2">
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  Remaining Unallocated Credit
+                </p>
+
+                <p
+                  className={`mt-1 text-lg font-semibold ${
+                    remainingCredit > 0
+                      ? "text-amber-400"
+                      : "text-emerald-400"
+                  }`}
+                >
+                  ₹
+                  {remainingCredit.toLocaleString(
+                    "en-IN"
+                  )}
+                </p>
+
+                {remainingCredit > 0 && (
+                  <p className="mt-1 text-xs text-slate-400">
+                    This amount will remain
+                    available as customer credit
+                    after the invoice allocation.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+        {allocationIsTooHigh && (
+          <div className="rounded-lg border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+            Allocation cannot exceed the
+            transaction amount or invoice
+            balance.
+          </div>
+        )}
 
         {message && (
           <div className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-sm">
@@ -321,6 +443,8 @@ export default function ManualMatchForm({
           type="submit"
           disabled={
             loading ||
+            allocationIsTooHigh ||
+            allocationNumber <= 0 ||
             transactions.length === 0 ||
             invoices.length === 0
           }

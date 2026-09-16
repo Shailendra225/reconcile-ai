@@ -1,22 +1,44 @@
 import { redirect } from "next/navigation";
 
 import { db } from "@/lib/db";
-import { getCurrentBusiness } from "@/lib/getCurrentBusiness";
+import { getCurrentMembership } from "@/lib/getCurrentMembership";
+import { canManageInvoices } from "@/lib/permissions";
 import NewInvoiceForm from "@/components/NewInvoiceForm";
 
 export default async function NewInvoicePage() {
-  const business =
-    await getCurrentBusiness();
+  // --------------------------------------------------
+  // Current workspace membership
+  // --------------------------------------------------
 
-  if (!business) {
+  const membership =
+    await getCurrentMembership();
+
+  if (!membership) {
     redirect("/login");
   }
+
+  // --------------------------------------------------
+  // Permission check
+  // VIEWER cannot create invoices
+  // --------------------------------------------------
+
+  if (
+    !canManageInvoices(
+      membership.role
+    )
+  ) {
+    redirect("/invoices");
+  }
+
+  // --------------------------------------------------
+  // Fetch customers from current workspace only
+  // --------------------------------------------------
 
   const customers =
     await db.customer.findMany({
       where: {
         businessId:
-          business.id,
+          membership.businessId,
       },
 
       orderBy: {

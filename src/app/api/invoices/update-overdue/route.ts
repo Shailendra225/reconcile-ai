@@ -1,14 +1,19 @@
 import { NextResponse } from "next/server";
 
 import { updateOverdueInvoices } from "@/lib/updateOverdueInvoices";
-import { getCurrentBusiness } from "@/lib/getCurrentBusiness";
+import { getCurrentMembership } from "@/lib/getCurrentMembership";
+import { canManageInvoices } from "@/lib/permissions";
 
 export async function POST() {
   try {
-    const business =
-      await getCurrentBusiness();
+    // ----------------------------------------
+    // Authentication + workspace membership
+    // ----------------------------------------
 
-    if (!business) {
+    const membership =
+      await getCurrentMembership();
+
+    if (!membership) {
       return NextResponse.json(
         {
           success: false,
@@ -20,9 +25,38 @@ export async function POST() {
       );
     }
 
+    // ----------------------------------------
+    // Role permission
+    //
+    // OWNER / ADMIN / ACCOUNTANT = allowed
+    // VIEWER = blocked
+    // ----------------------------------------
+
+    if (
+      !canManageInvoices(
+        membership.role
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "You do not have permission to update invoice statuses.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    // ----------------------------------------
+    // Update overdue invoices only
+    // for current workspace
+    // ----------------------------------------
+
     const result =
       await updateOverdueInvoices(
-        business.id
+        membership.businessId
       );
 
     return NextResponse.json({
@@ -49,6 +83,7 @@ export async function POST() {
     return NextResponse.json(
       {
         success: false,
+
         message:
           error instanceof Error
             ? error.message

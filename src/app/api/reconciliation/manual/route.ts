@@ -1,13 +1,19 @@
 import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db";
-import { getCurrentBusiness } from "@/lib/getCurrentBusiness";
+import { getCurrentMembership } from "@/lib/getCurrentMembership";
+import { canManageReconciliation } from "@/lib/permissions";
 
 export async function POST(request: Request) {
   try {
-    const business = await getCurrentBusiness();
+    // --------------------------------------------------
+    // 1. Get current workspace membership
+    // --------------------------------------------------
 
-    if (!business) {
+    const membership =
+      await getCurrentMembership();
+
+    if (!membership) {
       return NextResponse.json(
         {
           success: false,
@@ -19,16 +25,55 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = await request.json();
+    // --------------------------------------------------
+    // 2. Check reconciliation permission
+    //
+    // OWNER / ADMIN / ACCOUNTANT = allowed
+    // VIEWER = blocked
+    // --------------------------------------------------
 
-    const transactionId =
-      String(body.transactionId ?? "").trim();
+    if (
+      !canManageReconciliation(
+        membership.role
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "You do not have permission to manually reconcile transactions.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
 
-    const invoiceId =
-      String(body.invoiceId ?? "").trim();
+    const businessId =
+      membership.businessId;
 
-    const allocationAmount =
-      Number(body.allocationAmount);
+    // --------------------------------------------------
+    // 3. Read request body
+    // --------------------------------------------------
+
+    const body =
+      await request.json();
+
+    const transactionId = String(
+      body.transactionId ?? ""
+    ).trim();
+
+    const invoiceId = String(
+      body.invoiceId ?? ""
+    ).trim();
+
+    const allocationAmount = Number(
+      body.allocationAmount
+    );
+
+    // --------------------------------------------------
+    // 4. Basic validation
+    // --------------------------------------------------
 
     if (!transactionId || !invoiceId) {
       return NextResponse.json(
@@ -44,7 +89,9 @@ export async function POST(request: Request) {
     }
 
     if (
-      !Number.isFinite(allocationAmount) ||
+      !Number.isFinite(
+        allocationAmount
+      ) ||
       allocationAmount <= 0
     ) {
       return NextResponse.json(
@@ -59,13 +106,16 @@ export async function POST(request: Request) {
       );
     }
 
-    // Make sure the transaction belongs
-    // to the logged-in business.
+    // --------------------------------------------------
+    // 5. Find unmatched CREDIT transaction
+    //    belonging to current workspace
+    // --------------------------------------------------
+
     const bankTransaction =
       await db.bankTransaction.findFirst({
         where: {
           id: transactionId,
-          businessId: business.id,
+          businessId,
           direction: "CREDIT",
           status: "UNMATCHED",
         },
@@ -84,13 +134,17 @@ export async function POST(request: Request) {
       );
     }
 
-    // Make sure the invoice also belongs
-    // to the logged-in business.
+    // --------------------------------------------------
+    // 6. Find open invoice belonging
+    //    to current workspace
+    // --------------------------------------------------
+
     const invoice =
       await db.invoice.findFirst({
         where: {
           id: invoiceId,
-          businessId: business.id,
+          businessId,
+
           status: {
             in: [
               "SENT",
@@ -104,6 +158,12 @@ export async function POST(request: Request) {
           allocations: {
             select: {
               amount: true,
+            },
+          },
+
+          customer: {
+            select: {
+              id: true,
             },
           },
         },
@@ -122,13 +182,18 @@ export async function POST(request: Request) {
       );
     }
 
+    // --------------------------------------------------
+    // 7. Calculate invoice balance
+    // --------------------------------------------------
+
     const invoiceTotal =
       Number(invoice.totalAmount);
 
     const alreadyPaid =
       invoice.allocations.reduce(
         (sum, allocation) =>
-          sum + Number(allocation.amount),
+          sum +
+          Number(allocation.amount),
         0
       );
 
@@ -140,6 +205,23 @@ export async function POST(request: Request) {
 
     const transactionAmount =
       Number(bankTransaction.amount);
+
+    if (invoiceBalance <= 0.001) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "This invoice has no outstanding balance.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    // --------------------------------------------------
+    // 8. Validate allocation
+    // --------------------------------------------------
 
     if (
       allocationAmount >
@@ -173,64 +255,176 @@ export async function POST(request: Request) {
       );
     }
 
+    // --------------------------------------------------
+    // 9. Calculate remaining customer credit
+    // --------------------------------------------------
+
+    const remainingCredit =
+      Math.max(
+        transactionAmount -
+          allocationAmount,
+        0
+      );
+
     const newPaidAmount =
-      alreadyPaid + allocationAmount;
+      alreadyPaid +
+      allocationAmount;
 
     const invoiceIsPaid =
-      newPaidAmount >= invoiceTotal - 0.001;
+      newPaidAmount >=
+      invoiceTotal - 0.001;
 
-    await db.$transaction(async (tx) => {
-      // Create payment for the bank transaction.
-      const payment =
-        await tx.payment.create({
-          data: {
-            businessId: business.id,
-            bankTransactionId:
-              bankTransaction.id,
-            amount: allocationAmount,
-            paymentDate:
-              bankTransaction.transactionDate,
-            source: "BANK_TRANSFER",
-          },
-        });
+    // --------------------------------------------------
+    // 10. Perform reconciliation atomically
+    // --------------------------------------------------
 
-      // Allocate payment to selected invoice.
-      await tx.paymentAllocation.create({
-        data: {
-          paymentId: payment.id,
-          invoiceId: invoice.id,
-          amount: allocationAmount,
-        },
-      });
+    const result =
+      await db.$transaction(
+        async (tx) => {
+          /*
+           * Payment represents the COMPLETE
+           * bank transaction.
+           *
+           * Example:
+           *
+           * Transaction = ₹7,000
+           * Allocation  = ₹6,000
+           *
+           * Payment.amount = ₹7,000
+           * Allocation     = ₹6,000
+           * Credit         = ₹1,000
+           */
 
-      // Update invoice status.
-      await tx.invoice.update({
-        where: {
-          id: invoice.id,
-        },
-        data: {
-          status: invoiceIsPaid
-            ? "PAID"
-            : "PARTIALLY_PAID",
-        },
-      });
+          const payment =
+            await tx.payment.create({
+              data: {
+                businessId,
 
-      // For this first manual-match version,
-      // the complete bank transaction must be allocated.
-      await tx.bankTransaction.update({
-        where: {
-          id: bankTransaction.id,
-        },
-        data: {
-          status: "MATCHED",
-        },
-      });
-    });
+                customerId:
+                  invoice.customer.id,
+
+                bankTransactionId:
+                  bankTransaction.id,
+
+                amount:
+                  transactionAmount,
+
+                paymentDate:
+                  bankTransaction.transactionDate,
+
+                reference:
+                  bankTransaction.reference,
+
+                source:
+                  "BANK_TRANSFER",
+              },
+            });
+
+          // ----------------------------------------------
+          // Create invoice allocation
+          // ----------------------------------------------
+
+          const allocation =
+            await tx.paymentAllocation.create({
+              data: {
+                paymentId:
+                  payment.id,
+
+                invoiceId:
+                  invoice.id,
+
+                amount:
+                  allocationAmount,
+              },
+            });
+
+          // ----------------------------------------------
+          // Update invoice status
+          // ----------------------------------------------
+
+          await tx.invoice.update({
+            where: {
+              id: invoice.id,
+            },
+
+            data: {
+              status:
+                invoiceIsPaid
+                  ? "PAID"
+                  : "PARTIALLY_PAID",
+            },
+          });
+
+          // ----------------------------------------------
+          // Transaction is now processed.
+          //
+          // Any unused Payment amount remains
+          // available as customer credit.
+          // ----------------------------------------------
+
+          await tx.bankTransaction.update({
+            where: {
+              id: bankTransaction.id,
+            },
+
+            data: {
+              status: "MATCHED",
+            },
+          });
+
+          return {
+            paymentId:
+              payment.id,
+
+            allocationId:
+              allocation.id,
+          };
+        }
+      );
+
+    // --------------------------------------------------
+    // 11. Success response
+    // --------------------------------------------------
 
     return NextResponse.json({
       success: true,
+
       message:
-        "Transaction manually matched successfully.",
+        remainingCredit > 0.001
+          ? `Transaction matched successfully. ₹${remainingCredit.toFixed(
+              2
+            )} remains as unallocated customer credit.`
+          : "Transaction manually matched successfully.",
+
+      paymentId:
+        result.paymentId,
+
+      allocationId:
+        result.allocationId,
+
+      allocation: {
+        transactionAmount,
+
+        allocatedAmount:
+          allocationAmount,
+
+        remainingCredit,
+
+        invoiceBalanceBeforeAllocation:
+          invoiceBalance,
+
+        invoiceBalanceAfterAllocation:
+          Math.max(
+            invoiceBalance -
+              allocationAmount,
+            0
+          ),
+
+        invoiceStatus:
+          invoiceIsPaid
+            ? "PAID"
+            : "PARTIALLY_PAID",
+      },
     });
   } catch (error) {
     console.error(

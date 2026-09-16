@@ -1,16 +1,12 @@
-import { getCurrentUser } from "@/lib/getCurrentUser";
-import { db } from "@/lib/db";
+import { getCurrentMembership } from "@/lib/getCurrentMembership";
 
 export async function getCurrentBusiness() {
-  const user = await getCurrentUser();
+  const membership =
+    await getCurrentMembership();
 
-  if (!user) {
+  if (!membership) {
     return null;
   }
 
-  return db.business.findUnique({
-    where: {
-      ownerId: user.id,
-    },
-  });
+  return membership.business;
 }

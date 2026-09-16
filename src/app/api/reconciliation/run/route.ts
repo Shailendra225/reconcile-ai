@@ -1,14 +1,19 @@
 import { NextResponse } from "next/server";
+
 import { runReconciliation } from "@/lib/runReconciliation";
-import { getCurrentBusiness } from "@/lib/getCurrentBusiness";
+import { getCurrentMembership } from "@/lib/getCurrentMembership";
+import { canManageReconciliation } from "@/lib/permissions";
 
 export async function POST() {
   try {
-    // Get logged-in user's business
-    const business =
-      await getCurrentBusiness();
+    // ----------------------------------------
+    // Authentication + workspace membership
+    // ----------------------------------------
 
-    if (!business) {
+    const membership =
+      await getCurrentMembership();
+
+    if (!membership) {
       return NextResponse.json(
         {
           success: false,
@@ -20,17 +25,46 @@ export async function POST() {
       );
     }
 
-    // Run reconciliation only
-    // for logged-in business
+    // ----------------------------------------
+    // Role permission
+    //
+    // OWNER / ADMIN / ACCOUNTANT = allowed
+    // VIEWER = blocked
+    // ----------------------------------------
+
+    if (
+      !canManageReconciliation(
+        membership.role
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "You do not have permission to run reconciliation.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    // ----------------------------------------
+    // Run reconciliation only for
+    // current workspace
+    // ----------------------------------------
+
     const result =
       await runReconciliation(
-        business.id
+        membership.businessId
       );
 
     return NextResponse.json({
       success: true,
+
       message:
         "Reconciliation scan completed.",
+
       ...result,
     });
   } catch (error) {
@@ -42,6 +76,7 @@ export async function POST() {
     return NextResponse.json(
       {
         success: false,
+
         message:
           error instanceof Error
             ? error.message

@@ -1,14 +1,19 @@
 import { NextResponse } from "next/server";
+
 import { db } from "@/lib/db";
-import { getCurrentBusiness } from "@/lib/getCurrentBusiness";
+import { getCurrentMembership } from "@/lib/getCurrentMembership";
+import { canManageCustomers } from "@/lib/permissions";
 
 export async function POST(request: Request) {
   try {
-    // Get logged-in user's business
-    const business =
-      await getCurrentBusiness();
+    // ----------------------------------------
+    // Authentication + workspace membership
+    // ----------------------------------------
 
-    if (!business) {
+    const membership =
+      await getCurrentMembership();
+
+    if (!membership) {
       return NextResponse.json(
         {
           success: false,
@@ -19,6 +24,32 @@ export async function POST(request: Request) {
         }
       );
     }
+
+    // ----------------------------------------
+    // Role permission
+    // OWNER / ADMIN / ACCOUNTANT = allowed
+    // VIEWER = blocked
+    // ----------------------------------------
+
+    if (!canManageCustomers(membership.role)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "You do not have permission to create customers.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    const business =
+      membership.business;
+
+    // ----------------------------------------
+    // Request body
+    // ----------------------------------------
 
     const body =
       await request.json();
@@ -31,7 +62,10 @@ export async function POST(request: Request) {
       gstNumber,
     } = body;
 
-    // Customer name is required
+    // ----------------------------------------
+    // Validate customer name
+    // ----------------------------------------
+
     if (
       !name ||
       typeof name !== "string" ||
@@ -49,6 +83,10 @@ export async function POST(request: Request) {
       );
     }
 
+    // ----------------------------------------
+    // Create customer in current workspace
+    // ----------------------------------------
+
     const customer =
       await db.customer.create({
         data: {
@@ -59,20 +97,28 @@ export async function POST(request: Request) {
             name.trim(),
 
           email:
-            email?.trim() ||
-            null,
+            typeof email === "string" &&
+            email.trim()
+              ? email.trim()
+              : null,
 
           phone:
-            phone?.trim() ||
-            null,
+            typeof phone === "string" &&
+            phone.trim()
+              ? phone.trim()
+              : null,
 
           upiId:
-            upiId?.trim() ||
-            null,
+            typeof upiId === "string" &&
+            upiId.trim()
+              ? upiId.trim()
+              : null,
 
           gstNumber:
-            gstNumber?.trim() ||
-            null,
+            typeof gstNumber === "string" &&
+            gstNumber.trim()
+              ? gstNumber.trim()
+              : null,
         },
       });
 

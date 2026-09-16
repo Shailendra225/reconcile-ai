@@ -2,6 +2,13 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db";
 import { getCurrentBusiness } from "@/lib/getCurrentBusiness";
+import { getCurrentMembership } from "@/lib/getCurrentMembership";
+import { canManageInvoices } from "@/lib/permissions";
+
+// ======================================================
+// GET INVOICE
+// All workspace members can view
+// ======================================================
 
 export async function GET(
   request: Request,
@@ -125,6 +132,12 @@ export async function GET(
   }
 }
 
+// ======================================================
+// UPDATE INVOICE
+// OWNER / ADMIN / ACCOUNTANT only
+// VIEWER blocked
+// ======================================================
+
 export async function PATCH(
   request: Request,
   context: {
@@ -132,10 +145,14 @@ export async function PATCH(
   }
 ) {
   try {
-    const business =
-      await getCurrentBusiness();
+    // ----------------------------------------
+    // Authentication + workspace membership
+    // ----------------------------------------
 
-    if (!business) {
+    const membership =
+      await getCurrentMembership();
+
+    if (!membership) {
       return NextResponse.json(
         {
           success: false,
@@ -146,6 +163,30 @@ export async function PATCH(
         }
       );
     }
+
+    // ----------------------------------------
+    // Invoice permission
+    // ----------------------------------------
+
+    if (
+      !canManageInvoices(
+        membership.role
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "You do not have permission to update invoices.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    const businessId =
+      membership.businessId;
 
     const { id } =
       await context.params;
@@ -160,8 +201,14 @@ export async function PATCH(
       notes,
     } = body;
 
+    // ----------------------------------------
+    // Validation
+    // ----------------------------------------
+
     if (
-      !invoiceNumber ||
+      typeof invoiceNumber !==
+        "string" ||
+      !invoiceNumber.trim() ||
       totalAmount === undefined
     ) {
       return NextResponse.json(
@@ -195,12 +242,15 @@ export async function PATCH(
       );
     }
 
+    // ----------------------------------------
+    // Invoice must belong to current workspace
+    // ----------------------------------------
+
     const existingInvoice =
       await db.invoice.findFirst({
         where: {
           id,
-          businessId:
-            business.id,
+          businessId,
         },
 
         select: {
@@ -220,6 +270,10 @@ export async function PATCH(
         }
       );
     }
+
+    // ----------------------------------------
+    // Due date validation
+    // ----------------------------------------
 
     let parsedDueDate:
       | Date
@@ -247,6 +301,10 @@ export async function PATCH(
       }
     }
 
+    // ----------------------------------------
+    // Update invoice
+    // ----------------------------------------
+
     const invoice =
       await db.invoice.update({
         where: {
@@ -265,15 +323,20 @@ export async function PATCH(
             parsedDueDate,
 
           notes:
-            notes?.trim() ||
-            null,
+            typeof notes ===
+              "string" &&
+            notes.trim()
+              ? notes.trim()
+              : null,
         },
       });
 
     return NextResponse.json({
       success: true,
+
       message:
         "Invoice updated successfully",
+
       invoice,
     });
   } catch (error) {
@@ -285,6 +348,7 @@ export async function PATCH(
     return NextResponse.json(
       {
         success: false,
+
         message:
           error instanceof Error
             ? error.message

@@ -4,17 +4,26 @@ import ConfirmMatchButton from "@/components/ConfirmMatchButton";
 import RunReconciliationButton from "@/components/RunReconciliationButton";
 import RejectMatchButton from "@/components/RejectMatchButton";
 import { redirect } from "next/navigation";
-import { getCurrentBusiness } from "@/lib/getCurrentBusiness";
+import { getCurrentMembership } from "@/lib/getCurrentMembership";
+import { canManageReconciliation } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
 export default async function ReconciliationPage() {
-  const business =
-    await getCurrentBusiness();
+  const membership =
+    await getCurrentMembership();
 
-  if (!business) {
+  if (!membership) {
     redirect("/login");
   }
+
+  const business =
+    membership.business;
+
+  const canManage =
+    canManageReconciliation(
+      membership.role
+    );
 
   const matches =
     await db.reconciliationMatch.findMany({
@@ -40,7 +49,7 @@ export default async function ReconciliationPage() {
         createdAt: "desc",
       },
     });
-    
+
   const groupedMatches =
     new Map<
       string,
@@ -88,7 +97,9 @@ export default async function ReconciliationPage() {
           </div>
 
           <div className="flex items-start gap-3">
-            <RunReconciliationButton />
+            {canManage && (
+              <RunReconciliationButton />
+            )}
 
             <Link
               href="/transactions"
@@ -311,17 +322,21 @@ export default async function ReconciliationPage() {
                         </div>
 
                         <div className="flex min-w-[170px] flex-col items-stretch gap-3">
-                          <ConfirmMatchButton
-                            matchId={
-                              firstMatch.id
-                            }
-                          />
+                          {canManage && (
+                            <>
+                              <ConfirmMatchButton
+                                matchId={
+                                  firstMatch.id
+                                }
+                              />
 
-                          <RejectMatchButton
-                            matchId={
-                              firstMatch.id
-                            }
-                          />
+                              <RejectMatchButton
+                                matchId={
+                                  firstMatch.id
+                                }
+                              />
+                            </>
+                          )}
 
                           {group.length ===
                             1 && (

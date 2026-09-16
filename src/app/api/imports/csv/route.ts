@@ -3,7 +3,9 @@ import { parse } from "csv-parse/sync";
 import { createHash } from "crypto";
 
 import { runReconciliation } from "@/lib/runReconciliation";
-import { getCurrentBusiness } from "@/lib/getCurrentBusiness";
+import { getCurrentMembership } from "@/lib/getCurrentMembership";
+import { canManageTransactions } from "@/lib/permissions";
+import { getPlanLimits } from "@/lib/plans";
 import { db } from "@/lib/db";
 
 type CsvRow = {
@@ -14,14 +16,27 @@ type CsvRow = {
   direction?: string;
 };
 
+type PreparedTransaction = {
+  transactionDate: Date;
+  description: string;
+  reference: string | null;
+  amount: number;
+  direction: "CREDIT" | "DEBIT";
+  fingerprint: string;
+};
+
 export async function POST(
   request: Request
 ) {
   try {
-    const business =
-      await getCurrentBusiness();
+    // ----------------------------------------
+    // Authentication + workspace membership
+    // ----------------------------------------
 
-    if (!business) {
+    const membership =
+      await getCurrentMembership();
+
+    if (!membership) {
       return NextResponse.json(
         {
           success: false,
@@ -32,6 +47,116 @@ export async function POST(
         }
       );
     }
+
+    // ----------------------------------------
+    // Role permission
+    // ----------------------------------------
+
+    if (
+      !canManageTransactions(
+        membership.role
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "You do not have permission to import transactions.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    const business =
+      membership.business;
+
+    // ----------------------------------------
+    // Subscription
+    // ----------------------------------------
+
+    const subscription =
+      await db.subscription.findUnique({
+        where: {
+          businessId:
+            business.id,
+        },
+      });
+
+    if (!subscription) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Business subscription could not be found.",
+        },
+        {
+          status: 409,
+        }
+      );
+    }
+
+    if (
+      subscription.status !== "ACTIVE"
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Your subscription is not active.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    const limits =
+      getPlanLimits(
+        subscription.plan
+      );
+
+    // ----------------------------------------
+    // Current monthly usage
+    // ----------------------------------------
+
+    const now = new Date();
+
+    const monthStart =
+      new Date(
+        Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          1
+        )
+      );
+
+    const nextMonthStart =
+      new Date(
+        Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth() + 1,
+          1
+        )
+      );
+
+    const monthlyUsage =
+      await db.bankTransaction.count({
+        where: {
+          businessId:
+            business.id,
+
+          createdAt: {
+            gte: monthStart,
+            lt: nextMonthStart,
+          },
+        },
+      });
+
+    // ----------------------------------------
+    // Read uploaded CSV
+    // ----------------------------------------
 
     const formData =
       await request.formData();
@@ -95,9 +220,18 @@ export async function POST(
       );
     }
 
-    let imported = 0;
     let duplicates = 0;
     let invalid = 0;
+
+    const preparedTransactions:
+      PreparedTransaction[] = [];
+
+    const seenFingerprints =
+      new Set<string>();
+
+    // ----------------------------------------
+    // Validate + prepare CSV rows
+    // ----------------------------------------
 
     for (const row of rows) {
       const date =
@@ -168,6 +302,27 @@ export async function POST(
           )
           .digest("hex");
 
+      // --------------------------------------
+      // Duplicate inside same uploaded CSV
+      // --------------------------------------
+
+      if (
+        seenFingerprints.has(
+          fingerprint
+        )
+      ) {
+        duplicates++;
+        continue;
+      }
+
+      seenFingerprints.add(
+        fingerprint
+      );
+
+      // --------------------------------------
+      // Duplicate already in database
+      // --------------------------------------
+
       const existing =
         await db.bankTransaction.findFirst({
           where: {
@@ -187,45 +342,143 @@ export async function POST(
         continue;
       }
 
-      await db.bankTransaction.create({
-        data: {
-          businessId:
-            business.id,
+      preparedTransactions.push({
+        transactionDate,
 
-          transactionDate,
+        description,
 
-          description,
+        reference,
 
-          reference,
+        amount,
 
-          amount,
+        direction:
+          direction === "CREDIT"
+            ? "CREDIT"
+            : "DEBIT",
 
-          direction:
-            direction ===
-            "CREDIT"
-              ? "CREDIT"
-              : "DEBIT",
-
-          status:
-            "UNMATCHED",
-
-          fingerprint,
-        },
+        fingerprint,
       });
-
-      imported++;
     }
 
-    const reconciliation =
-      await runReconciliation(
-        business.id
+    // ----------------------------------------
+    // Monthly plan limit
+    // ----------------------------------------
+
+    const remainingTransactions =
+      Math.max(
+        limits.monthlyTransactions -
+          monthlyUsage,
+        0
       );
+
+    if (
+      preparedTransactions.length >
+      remainingTransactions
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+
+          message:
+            `Your ${subscription.plan} plan allows ${limits.monthlyTransactions} transactions per month. You have ${remainingTransactions} transaction${
+              remainingTransactions === 1
+                ? ""
+                : "s"
+            } remaining this month.`,
+
+          plan:
+            subscription.plan,
+
+          monthlyLimit:
+            limits.monthlyTransactions,
+
+          used:
+            monthlyUsage,
+
+          remaining:
+            remainingTransactions,
+
+          attemptedImport:
+            preparedTransactions.length,
+
+          duplicates,
+
+          invalid,
+
+          imported: 0,
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    // ----------------------------------------
+    // Import prepared transactions
+    // ----------------------------------------
+
+    if (
+      preparedTransactions.length > 0
+    ) {
+      await db.bankTransaction.createMany({
+        data:
+          preparedTransactions.map(
+            (transaction) => ({
+              businessId:
+                business.id,
+
+              transactionDate:
+                transaction.transactionDate,
+
+              description:
+                transaction.description,
+
+              reference:
+                transaction.reference,
+
+              amount:
+                transaction.amount,
+
+              direction:
+                transaction.direction,
+
+              status:
+                "UNMATCHED",
+
+              fingerprint:
+                transaction.fingerprint,
+            })
+          ),
+
+        skipDuplicates: true,
+      });
+    }
+
+    // ----------------------------------------
+    // Calculate actual imported count
+    // ----------------------------------------
+
+    const imported =
+      preparedTransactions.length;
+
+    // ----------------------------------------
+    // Run reconciliation
+    // ----------------------------------------
+
+    const reconciliation =
+      imported > 0
+        ? await runReconciliation(
+            business.id
+          )
+        : null;
 
     return NextResponse.json({
       success: true,
 
       message:
-        "CSV import and reconciliation completed.",
+        imported > 0
+          ? "CSV import and reconciliation completed."
+          : "No new transactions were imported.",
 
       imported,
 
@@ -235,6 +488,29 @@ export async function POST(
 
       totalRows:
         rows.length,
+
+      usage: {
+        plan:
+          subscription.plan,
+
+        monthlyLimit:
+          limits.monthlyTransactions,
+
+        usedBeforeImport:
+          monthlyUsage,
+
+        usedAfterImport:
+          monthlyUsage +
+          imported,
+
+        remaining:
+          Math.max(
+            limits.monthlyTransactions -
+              monthlyUsage -
+              imported,
+            0
+          ),
+      },
 
       reconciliation,
     });
@@ -247,6 +523,7 @@ export async function POST(
     return NextResponse.json(
       {
         success: false,
+
         message:
           error instanceof Error
             ? error.message

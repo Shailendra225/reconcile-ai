@@ -1,13 +1,19 @@
 import { NextResponse } from "next/server";
+
 import { db } from "@/lib/db";
-import { getCurrentBusiness } from "@/lib/getCurrentBusiness";
+import { getCurrentMembership } from "@/lib/getCurrentMembership";
+import { canManageInvoices } from "@/lib/permissions";
 
 export async function POST(request: Request) {
   try {
-    const business =
-      await getCurrentBusiness();
+    // ----------------------------------------
+    // Authentication + workspace membership
+    // ----------------------------------------
 
-    if (!business) {
+    const membership =
+      await getCurrentMembership();
+
+    if (!membership) {
       return NextResponse.json(
         {
           success: false,
@@ -18,6 +24,32 @@ export async function POST(request: Request) {
         }
       );
     }
+
+    // ----------------------------------------
+    // Role permission
+    // OWNER / ADMIN / ACCOUNTANT = allowed
+    // VIEWER = blocked
+    // ----------------------------------------
+
+    if (!canManageInvoices(membership.role)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "You do not have permission to create invoices.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    const business =
+      membership.business;
+
+    // ----------------------------------------
+    // Request body
+    // ----------------------------------------
 
     const body =
       await request.json();
@@ -47,8 +79,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // Make sure the selected customer
-    // belongs to the logged-in business.
+    // ----------------------------------------
+    // Customer must belong to current workspace
+    // ----------------------------------------
+
     const customer =
       await db.customer.findFirst({
         where: {
@@ -74,6 +108,10 @@ export async function POST(request: Request) {
       );
     }
 
+    // ----------------------------------------
+    // Validate amount
+    // ----------------------------------------
+
     const amount =
       Number(totalAmount);
 
@@ -92,6 +130,10 @@ export async function POST(request: Request) {
         }
       );
     }
+
+    // ----------------------------------------
+    // Create invoice
+    // ----------------------------------------
 
     const invoice =
       await db.invoice.create({

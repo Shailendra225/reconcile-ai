@@ -5,7 +5,8 @@ import {
 } from "next/navigation";
 
 import { db } from "@/lib/db";
-import { getCurrentBusiness } from "@/lib/getCurrentBusiness";
+import { getCurrentMembership } from "@/lib/getCurrentMembership";
+import { canManageInvoices } from "@/lib/permissions";
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("en-IN", {
@@ -30,21 +31,34 @@ export default async function InvoiceDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const business =
-    await getCurrentBusiness();
+  // --------------------------------------------------
+  // Current workspace membership
+  // --------------------------------------------------
 
-  if (!business) {
+  const membership =
+    await getCurrentMembership();
+
+  if (!membership) {
     redirect("/login");
   }
 
+  const canManage =
+    canManageInvoices(
+      membership.role
+    );
+
   const { id } = await params;
+
+  // --------------------------------------------------
+  // Fetch invoice from current workspace
+  // --------------------------------------------------
 
   const invoice =
     await db.invoice.findFirst({
       where: {
         id,
         businessId:
-          business.id,
+          membership.businessId,
       },
 
       include: {
@@ -74,6 +88,10 @@ export default async function InvoiceDetailPage({
     notFound();
   }
 
+  // --------------------------------------------------
+  // Invoice calculations
+  // --------------------------------------------------
+
   const totalPaid =
     invoice.allocations.reduce(
       (
@@ -98,6 +116,10 @@ export default async function InvoiceDetailPage({
         totalPaid,
       0
     );
+
+  // --------------------------------------------------
+  // UI
+  // --------------------------------------------------
 
   return (
     <main className="min-h-screen bg-slate-950 px-8 py-10 text-white">
@@ -138,15 +160,19 @@ export default async function InvoiceDetailPage({
                 )}
               </span>
 
-              <Link
-                href={`/invoices/${invoice.id}/edit`}
-                className="rounded-lg bg-cyan-400 px-5 py-2.5 text-sm font-semibold text-slate-950 hover:bg-cyan-300"
-              >
-                Edit Invoice
-              </Link>
+              {canManage && (
+                <Link
+                  href={`/invoices/${invoice.id}/edit`}
+                  className="rounded-lg bg-cyan-400 px-5 py-2.5 text-sm font-semibold text-slate-950 hover:bg-cyan-300"
+                >
+                  Edit Invoice
+                </Link>
+              )}
             </div>
           </div>
         </div>
+
+        {/* Summary */}
 
         <section className="grid gap-4 sm:grid-cols-3">
           <SummaryCard
@@ -170,6 +196,8 @@ export default async function InvoiceDetailPage({
             )}
           />
         </section>
+
+        {/* Invoice + Customer Details */}
 
         <div className="mt-8 grid gap-6 lg:grid-cols-2">
           <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
@@ -259,6 +287,8 @@ export default async function InvoiceDetailPage({
           </section>
         </div>
 
+        {/* Payments */}
+
         <section className="mt-8 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
           <div className="border-b border-slate-800 px-6 py-5">
             <h2 className="text-lg font-semibold">
@@ -322,6 +352,8 @@ export default async function InvoiceDetailPage({
             </div>
           )}
         </section>
+
+        {/* Reconciliation */}
 
         <section className="mt-8 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
           <div className="border-b border-slate-800 px-6 py-5">

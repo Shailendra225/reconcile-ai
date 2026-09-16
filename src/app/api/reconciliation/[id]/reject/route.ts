@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+
 import { db } from "@/lib/db";
-import { getCurrentBusiness } from "@/lib/getCurrentBusiness";
+import { getCurrentMembership } from "@/lib/getCurrentMembership";
+import { canManageReconciliation } from "@/lib/permissions";
 
 export async function POST(
   request: Request,
@@ -11,10 +13,14 @@ export async function POST(
   }
 ) {
   try {
-    const business =
-      await getCurrentBusiness();
+    // ----------------------------------------
+    // Authentication + workspace membership
+    // ----------------------------------------
 
-    if (!business) {
+    const membership =
+      await getCurrentMembership();
+
+    if (!membership) {
       return NextResponse.json(
         {
           success: false,
@@ -26,24 +32,50 @@ export async function POST(
       );
     }
 
+    // ----------------------------------------
+    // Role permission
+    // OWNER / ADMIN / ACCOUNTANT = allowed
+    // VIEWER = blocked
+    // ----------------------------------------
+
+    if (
+      !canManageReconciliation(
+        membership.role
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "You do not have permission to reject reconciliation matches.",
+        },
+        {
+          status: 403,
+        }
+      );
+    }
+
+    const businessId =
+      membership.businessId;
+
     const { id } =
       await context.params;
 
-    // Match must belong to
-    // the logged-in business.
+    // ----------------------------------------
+    // Match must belong to current workspace
+    // ----------------------------------------
+
     const match =
       await db.reconciliationMatch.findFirst({
         where: {
           id,
 
           bankTransaction: {
-            businessId:
-              business.id,
+            businessId,
           },
 
           invoice: {
-            businessId:
-              business.id,
+            businessId,
           },
         },
 
@@ -66,6 +98,10 @@ export async function POST(
       );
     }
 
+    // ----------------------------------------
+    // Only suggested matches can be rejected
+    // ----------------------------------------
+
     if (
       match.status !==
       "SUGGESTED"
@@ -82,21 +118,27 @@ export async function POST(
       );
     }
 
+    // Extra workspace safety
     if (
       match.bankTransaction.businessId !==
-      business.id
+        businessId ||
+      match.invoice.businessId !==
+        businessId
     ) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            "Unauthorized.",
+          message: "Unauthorized.",
         },
         {
           status: 403,
         }
       );
     }
+
+    // ----------------------------------------
+    // Reject related suggested matches
+    // ----------------------------------------
 
     const result =
       await db.$transaction(
@@ -111,13 +153,11 @@ export async function POST(
                   "SUGGESTED",
 
                 bankTransaction: {
-                  businessId:
-                    business.id,
+                  businessId,
                 },
 
                 invoice: {
-                  businessId:
-                    business.id,
+                  businessId,
                 },
               },
 
@@ -126,6 +166,10 @@ export async function POST(
                   "REJECTED",
               },
             });
+
+          // ----------------------------------
+          // Return transaction to unmatched
+          // ----------------------------------
 
           await tx.bankTransaction.update({
             where: {
@@ -166,6 +210,7 @@ export async function POST(
     return NextResponse.json(
       {
         success: false,
+
         message:
           error instanceof Error
             ? error.message

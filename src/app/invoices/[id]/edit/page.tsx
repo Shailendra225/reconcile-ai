@@ -4,7 +4,8 @@ import {
 } from "next/navigation";
 
 import { db } from "@/lib/db";
-import { getCurrentBusiness } from "@/lib/getCurrentBusiness";
+import { getCurrentMembership } from "@/lib/getCurrentMembership";
+import { canManageInvoices } from "@/lib/permissions";
 import EditInvoiceForm from "@/components/EditInvoiceForm";
 
 export default async function EditInvoicePage({
@@ -12,21 +13,42 @@ export default async function EditInvoicePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const business =
-    await getCurrentBusiness();
+  // --------------------------------------------------
+  // Current workspace membership
+  // --------------------------------------------------
 
-  if (!business) {
+  const membership =
+    await getCurrentMembership();
+
+  if (!membership) {
     redirect("/login");
   }
 
+  // --------------------------------------------------
+  // Permission check
+  // VIEWER cannot access invoice edit page
+  // --------------------------------------------------
+
+  if (
+    !canManageInvoices(
+      membership.role
+    )
+  ) {
+    redirect("/invoices");
+  }
+
   const { id } = await params;
+
+  // --------------------------------------------------
+  // Fetch invoice from current workspace only
+  // --------------------------------------------------
 
   const invoice =
     await db.invoice.findFirst({
       where: {
         id,
         businessId:
-          business.id,
+          membership.businessId,
       },
     });
 
@@ -53,18 +75,22 @@ export default async function EditInvoicePage({
           <EditInvoiceForm
             invoice={{
               id: invoice.id,
+
               invoiceNumber:
                 invoice.invoiceNumber,
+
               totalAmount:
                 Number(
                   invoice.totalAmount
                 ),
+
               dueDate:
                 invoice.dueDate
                   ? invoice.dueDate
                       .toISOString()
                       .split("T")[0]
                   : "",
+
               notes:
                 invoice.notes ??
                 "",
