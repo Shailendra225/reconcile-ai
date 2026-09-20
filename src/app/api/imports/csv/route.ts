@@ -417,49 +417,52 @@ export async function POST(
     // Import prepared transactions
     // ----------------------------------------
 
-    if (
-      preparedTransactions.length > 0
-    ) {
-      await db.bankTransaction.createMany({
-        data:
-          preparedTransactions.map(
-            (transaction) => ({
-              businessId:
-                business.id,
+// ----------------------------------------
+// Import prepared transactions
+// ----------------------------------------
 
-              transactionDate:
-                transaction.transactionDate,
+let imported = 0;
 
-              description:
-                transaction.description,
+if (
+  preparedTransactions.length > 0
+) {
+  const result =
+    await db.bankTransaction.createMany({
+      data:
+        preparedTransactions.map(
+          (transaction) => ({
+            businessId:
+              business.id,
 
-              reference:
-                transaction.reference,
+            transactionDate:
+              transaction.transactionDate,
 
-              amount:
-                transaction.amount,
+            description:
+              transaction.description,
 
-              direction:
-                transaction.direction,
+            reference:
+              transaction.reference,
 
-              status:
-                "UNMATCHED",
+            amount:
+              transaction.amount,
 
-              fingerprint:
-                transaction.fingerprint,
-            })
-          ),
+            direction:
+              transaction.direction,
 
-        skipDuplicates: true,
-      });
-    }
+            status:
+              "UNMATCHED",
 
-    // ----------------------------------------
-    // Calculate actual imported count
-    // ----------------------------------------
+            fingerprint:
+              transaction.fingerprint,
+          })
+        ),
 
-    const imported =
-      preparedTransactions.length;
+      skipDuplicates: true,
+    });
+
+  imported =
+    result.count;
+}
 
     // ----------------------------------------
     // Run reconciliation

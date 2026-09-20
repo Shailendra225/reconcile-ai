@@ -31,7 +31,11 @@ export async function POST(request: Request) {
     // VIEWER = blocked
     // ----------------------------------------
 
-    if (!canManageInvoices(membership.role)) {
+    if (
+      !canManageInvoices(
+        membership.role
+      )
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -62,16 +66,19 @@ export async function POST(request: Request) {
       notes,
     } = body;
 
+    // ----------------------------------------
+    // Customer ID validation
+    // ----------------------------------------
+
     if (
-      !customerId ||
-      !invoiceNumber ||
-      totalAmount === undefined
+      typeof customerId !== "string" ||
+      !customerId.trim()
     ) {
       return NextResponse.json(
         {
           success: false,
           message:
-            "customerId, invoiceNumber and totalAmount are required",
+            "Customer is required.",
         },
         {
           status: 400,
@@ -80,16 +87,42 @@ export async function POST(request: Request) {
     }
 
     // ----------------------------------------
+    // Invoice number validation
+    // ----------------------------------------
+
+    if (
+      typeof invoiceNumber !== "string" ||
+      !invoiceNumber.trim()
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Invoice number is required.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    const normalizedInvoiceNumber =
+      invoiceNumber.trim();
+
+    // ----------------------------------------
     // Customer must belong to current workspace
     // ----------------------------------------
 
     const customer =
       await db.customer.findFirst({
         where: {
-          id: customerId,
+          id:
+            customerId.trim(),
+
           businessId:
             business.id,
         },
+
         select: {
           id: true,
         },
@@ -109,13 +142,16 @@ export async function POST(request: Request) {
     }
 
     // ----------------------------------------
-    // Validate amount
+    // Amount validation
     // ----------------------------------------
 
     const amount =
       Number(totalAmount);
 
     if (
+      totalAmount === undefined ||
+      totalAmount === null ||
+      totalAmount === "" ||
       !Number.isFinite(amount) ||
       amount <= 0
     ) {
@@ -132,6 +168,92 @@ export async function POST(request: Request) {
     }
 
     // ----------------------------------------
+    // Due date validation
+    // ----------------------------------------
+
+    let parsedDueDate:
+      | Date
+      | null = null;
+
+    if (
+      dueDate !== undefined &&
+      dueDate !== null &&
+      dueDate !== ""
+    ) {
+      if (
+        typeof dueDate !== "string"
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Invalid due date.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      parsedDueDate =
+        new Date(dueDate);
+
+      if (
+        Number.isNaN(
+          parsedDueDate.getTime()
+        )
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Invalid due date.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+    }
+
+    // ----------------------------------------
+    // Friendly duplicate check
+    //
+    // Database unique constraint remains the
+    // final protection against race conditions.
+    // ----------------------------------------
+
+    const existingInvoice =
+      await db.invoice.findFirst({
+        where: {
+          businessId:
+            business.id,
+
+          invoiceNumber:
+            normalizedInvoiceNumber,
+        },
+
+        select: {
+          id: true,
+        },
+      });
+
+    if (existingInvoice) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "An invoice with this invoice number already exists.",
+          code:
+            "DUPLICATE_INVOICE_NUMBER",
+        },
+        {
+          status: 409,
+        }
+      );
+    }
+
+    // ----------------------------------------
     // Create invoice
     // ----------------------------------------
 
@@ -141,20 +263,23 @@ export async function POST(request: Request) {
           businessId:
             business.id,
 
-          customerId,
+          customerId:
+            customer.id,
 
-          invoiceNumber,
+          invoiceNumber:
+            normalizedInvoiceNumber,
 
           totalAmount:
             amount,
 
           dueDate:
-            dueDate
-              ? new Date(dueDate)
-              : null,
+            parsedDueDate,
 
           notes:
-            notes || null,
+            typeof notes === "string" &&
+            notes.trim()
+              ? notes.trim()
+              : null,
 
           status:
             "SENT",
@@ -164,8 +289,10 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         success: true,
+
         message:
           "Invoice created successfully",
+
         invoice,
       },
       {
@@ -178,13 +305,38 @@ export async function POST(request: Request) {
       error
     );
 
+    // ----------------------------------------
+    // Prisma unique constraint protection
+    //
+    // Handles race condition where two requests
+    // attempt the same invoice number together.
+    // ----------------------------------------
+
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "P2002"
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "An invoice with this invoice number already exists.",
+          code:
+            "DUPLICATE_INVOICE_NUMBER",
+        },
+        {
+          status: 409,
+        }
+      );
+    }
+
     return NextResponse.json(
       {
         success: false,
         message:
-          error instanceof Error
-            ? error.message
-            : "Failed to create invoice",
+          "Failed to create invoice.",
       },
       {
         status: 500,
