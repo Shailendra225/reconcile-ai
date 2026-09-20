@@ -461,6 +461,8 @@ model Subscription {
   currentPeriodStart DateTime @default(now())
   currentPeriodEnd   DateTime?
 
+  cancelAtPeriodEnd Boolean @default(false)
+
   provider               String?
   providerCustomerId     String?
   providerSubscriptionId String?

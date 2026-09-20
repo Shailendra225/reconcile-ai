@@ -9,10 +9,19 @@ const resend = new Resend(
   process.env.RESEND_API_KEY
 );
 
-export const auth = betterAuth({
+  export const auth = betterAuth({
+  trustedOrigins: [
+    "http://localhost:3000",
+    "https://reconcile-ai-ebon.vercel.app",
+  ],
+
   database: prismaAdapter(db, {
     provider: "postgresql",
   }),
+
+  // database: prismaAdapter(db, {
+  //   provider: "postgresql",
+  // }),
 
   // ----------------------------------------
   // Email verification

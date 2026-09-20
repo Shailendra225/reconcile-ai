@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 
 import BusinessSettingsForm from "@/components/BusinessSettingsForm";
 import UpgradePlanButton from "@/components/UpgradePlanButton";
+import CancelSubscriptionButton from "@/components/CancelSubscriptionButton";
 
 export default async function SettingsPage() {
   // --------------------------------------------------
@@ -51,6 +52,19 @@ export default async function SettingsPage() {
   if (!subscription) {
     redirect("/dashboard");
   }
+
+  console.log("SETTINGS SUBSCRIPTION DEBUG:", {
+  businessId: business.id,
+  plan: subscription.plan,
+  status: subscription.status,
+  provider: subscription.provider,
+  providerSubscriptionId:
+    subscription.providerSubscriptionId
+      ? "PRESENT"
+      : "NULL",
+  cancelAtPeriodEnd:
+    subscription.cancelAtPeriodEnd,
+});
 
   const limits =
     getPlanLimits(
@@ -326,6 +340,9 @@ export default async function SettingsPage() {
 
             <h2 className="text-2xl font-bold">
               Plans
+          
+          
+          
             </h2>
 
             <p className="mt-1 text-sm text-slate-400">
@@ -610,6 +627,37 @@ export default async function SettingsPage() {
           </p>
 
         </section>
+
+        {/* ------------------------------------------ */}
+{/* Subscription Management */}
+{/* ------------------------------------------ */}
+
+{subscription.plan !== "FREE" &&
+  subscription.provider === "RAZORPAY" &&
+  subscription.providerSubscriptionId && (
+    <section className="mb-8 rounded-2xl border border-slate-800 bg-slate-900 p-6">
+      <h2 className="text-xl font-bold">
+        Subscription Management
+      </h2>
+
+      <p className="mt-2 text-sm text-slate-400">
+        Manage your recurring subscription.
+      </p>
+
+      <div className="mt-5">
+        <CancelSubscriptionButton
+          cancelAtPeriodEnd={
+            subscription.cancelAtPeriodEnd
+          }
+          currentPeriodEnd={
+            subscription.currentPeriodEnd
+              ? subscription.currentPeriodEnd.toISOString()
+              : null
+          }
+        />
+      </div>
+    </section>
+  )}
 
         {/* ------------------------------------------ */}
         {/* Business profile */}

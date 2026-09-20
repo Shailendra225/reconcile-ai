@@ -419,42 +419,48 @@ export async function POST(
     // ----------------------------------------
 
     else if (
-      event ===
-      "subscription.cancelled"
-    ) {
-      await db.subscription.update({
-        where: {
-          id:
-            localSubscription.id,
-        },
+  event ===
+  "subscription.cancelled"
+) {
+  await db.subscription.update({
+    where: {
+      id:
+        localSubscription.id,
+    },
 
-        data: {
-          status:
-            "CANCELLED",
-        },
-      });
-    }
+    data: {
+      status:
+        "CANCELLED",
+
+      cancelAtPeriodEnd:
+        false,
+    },
+  });
+}
 
     // ----------------------------------------
     // subscription.completed
     // ----------------------------------------
 
     else if (
-      event ===
-      "subscription.completed"
-    ) {
-      await db.subscription.update({
-        where: {
-          id:
-            localSubscription.id,
-        },
+  event ===
+  "subscription.completed"
+) {
+  await db.subscription.update({
+    where: {
+      id:
+        localSubscription.id,
+    },
 
-        data: {
-          status:
-            "EXPIRED",
-        },
-      });
-    }
+    data: {
+      status:
+        "EXPIRED",
+
+      cancelAtPeriodEnd:
+        false,
+    },
+  });
+}
 
     // ----------------------------------------
     // Other verified events
