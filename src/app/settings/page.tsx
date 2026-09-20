@@ -53,19 +53,6 @@ export default async function SettingsPage() {
     redirect("/dashboard");
   }
 
-  console.log("SETTINGS SUBSCRIPTION DEBUG:", {
-  businessId: business.id,
-  plan: subscription.plan,
-  status: subscription.status,
-  provider: subscription.provider,
-  providerSubscriptionId:
-    subscription.providerSubscriptionId
-      ? "PRESENT"
-      : "NULL",
-  cancelAtPeriodEnd:
-    subscription.cancelAtPeriodEnd,
-});
-
   const limits =
     getPlanLimits(
       subscription.plan

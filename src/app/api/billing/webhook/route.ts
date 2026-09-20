@@ -418,50 +418,58 @@ export async function POST(
     // subscription.cancelled
     // ----------------------------------------
 
+        // ----------------------------------------
+    // subscription.cancelled
+    // Paid subscription has ended.
+    // Downgrade workspace to FREE.
+    // ----------------------------------------
+
     else if (
-  event ===
-  "subscription.cancelled"
+  event === "subscription.cancelled"
 ) {
   await db.subscription.update({
     where: {
-      id:
-        localSubscription.id,
+      id: localSubscription.id,
     },
 
     data: {
-      status:
-        "CANCELLED",
+      plan: "FREE",
+      status: "ACTIVE",
 
-      cancelAtPeriodEnd:
-        false,
+      provider: null,
+      providerSubscriptionId: null,
+      providerCustomerId: null,
+
+      cancelAtPeriodEnd: false,
     },
   });
 }
-
     // ----------------------------------------
     // subscription.completed
+    // Subscription reached its natural end.
+    // Downgrade workspace to FREE.
     // ----------------------------------------
 
     else if (
-  event ===
-  "subscription.completed"
+  event === "subscription.completed"
 ) {
   await db.subscription.update({
     where: {
-      id:
-        localSubscription.id,
+      id: localSubscription.id,
     },
 
     data: {
-      status:
-        "EXPIRED",
+      plan: "FREE",
+      status: "ACTIVE",
 
-      cancelAtPeriodEnd:
-        false,
+      provider: null,
+      providerSubscriptionId: null,
+      providerCustomerId: null,
+
+      cancelAtPeriodEnd: false,
     },
   });
 }
-
     // ----------------------------------------
     // Other verified events
     // ----------------------------------------
