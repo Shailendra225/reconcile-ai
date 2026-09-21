@@ -352,23 +352,27 @@ export async function POST(
       );
 
     // ==========================================
-    // FULL TRANSACTION MUST BE ALLOCATED
+    // ALLOCATION SAFETY
+    //
+    // Exact and partial payments are allocated
+    // normally. For an overpayment, only the
+    // outstanding invoice balance is allocated.
+    // The remaining amount stays unallocated on
+    // the Payment and can later be applied as
+    // customer credit.
     // ==========================================
 
     if (
-      Math.abs(
-        totalAllocation -
-          transactionAmount
-      ) > 0.01
+      totalAllocation >
+      transactionAmount + 0.01
     ) {
       return NextResponse.json(
         {
           success: false,
-
           message:
             `Suggested allocations total ₹${totalAllocation.toFixed(
               2
-            )}, but transaction amount is ₹${transactionAmount.toFixed(
+            )}, which exceeds the transaction amount of ₹${transactionAmount.toFixed(
               2
             )}. Please review the match before confirming.`,
         },
@@ -377,6 +381,13 @@ export async function POST(
         }
       );
     }
+
+    const remainingCredit =
+      Math.max(
+        transactionAmount -
+          totalAllocation,
+        0
+      );
 
     // ==========================================
     // DATABASE TRANSACTION
@@ -521,6 +532,11 @@ export async function POST(
 
             confirmedMatches:
               allocationsToCreate.length,
+
+            allocatedAmount:
+              totalAllocation,
+
+            remainingCredit,
           };
         }
       );
@@ -529,10 +545,14 @@ export async function POST(
       success: true,
 
       message:
-        suggestedMatches.length >
-        1
-          ? `${suggestedMatches.length} invoice matches confirmed successfully.`
-          : "Match confirmed successfully.",
+        remainingCredit > 0.01
+          ? `Match confirmed successfully. ₹${remainingCredit.toFixed(
+              2
+            )} remains available as customer credit.`
+          : suggestedMatches.length >
+              1
+            ? `${suggestedMatches.length} invoice matches confirmed successfully.`
+            : "Match confirmed successfully.",
 
       data: result,
     });

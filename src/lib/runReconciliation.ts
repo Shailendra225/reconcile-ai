@@ -342,6 +342,28 @@ export async function runReconciliation(
         );
       }
 
+      // Overpayment
+      else if (
+        transactionAmount >
+          balance
+      ) {
+        score += 0.35;
+
+        const excessAmount =
+          transactionAmount -
+          balance;
+
+        reasons.push(
+          `Possible overpayment of ₹${transactionAmount.toFixed(
+            2
+          )} against outstanding balance ₹${balance.toFixed(
+            2
+          )}. Excess ₹${excessAmount.toFixed(
+            2
+          )} may remain as customer credit`
+        );
+      }
+
       // Invoice number
       if (
         invoice.invoiceNumber &&
@@ -547,7 +569,7 @@ export async function runReconciliation(
 
         const reasons: string[] =
           [
-            `Combined outstanding balances exactly equal transaction amount ₹${transactionAmount.toFixed(
+            `Combined outstanding balances exactly equal transaction amount â‚¹${transactionAmount.toFixed(
               2
             )}`,
           ];
@@ -667,9 +689,9 @@ export async function runReconciliation(
                 [
                   ...combinedMatch.reasons,
 
-                  `Combined payment allocation: ₹${item.balance.toFixed(
+                  `Combined payment allocation: â‚¹${item.balance.toFixed(
                     2
-                  )} → ${invoice.invoiceNumber}`,
+                  )} â†’ ${invoice.invoiceNumber}`,
                 ].join(", "),
             };
           });
