@@ -57,3 +57,19 @@ next-env.d.ts
 
 # Local skills metadata
 /skills-lock.json
+
+# Local reconciliation test files
+/confirm-route-updated.ts
+/manual-match-test.csv
+/manual-unmatched-test.csv
+/overpayment-test-004.csv
+/overpayment-test.csv
+/partial-payment-test.csv
+/production-credit-final-payment.csv
+/production-exact-payment.csv
+/production-overpayment.csv
+/production-partial-final-payment.csv
+/production-partial-payment.csv
+/production-reject-test.csv
+/team-page.txt
+/test-bank-statement - Copy.csv
