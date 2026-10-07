@@ -247,16 +247,22 @@ export async function PATCH(
     // ----------------------------------------
 
     const existingInvoice =
-      await db.invoice.findFirst({
-        where: {
-          id,
-          businessId,
-        },
+  await db.invoice.findFirst({
+    where: {
+      id,
+      businessId,
+    },
 
+    select: {
+      id: true,
+      totalAmount: true,
+      allocations: {
         select: {
-          id: true,
+          amount: true,
         },
-      });
+      },
+    },
+  });
 
     if (!existingInvoice) {
       return NextResponse.json(
@@ -270,6 +276,31 @@ export async function PATCH(
         }
       );
     }
+
+    // ----------------------------------------
+// Prevent invoice amount from being
+// lower than the amount already paid
+// ----------------------------------------
+
+const totalPaid =
+  existingInvoice.allocations.reduce(
+    (sum, allocation) =>
+      sum + Number(allocation.amount),
+    0
+  );
+
+if (amount < totalPaid) {
+  return NextResponse.json(
+    {
+      success: false,
+      message:
+        `Invoice amount cannot be less than the amount already paid (${totalPaid.toFixed(2)}).`,
+    },
+    {
+      status: 400,
+    }
+  );
+}
 
     // ----------------------------------------
     // Due date validation
@@ -350,9 +381,7 @@ export async function PATCH(
         success: false,
 
         message:
-          error instanceof Error
-            ? error.message
-            : "Failed to update invoice",
+  "Failed to update invoice. Please try again.",
       },
       {
         status: 500,

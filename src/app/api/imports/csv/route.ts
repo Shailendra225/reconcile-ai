@@ -194,6 +194,25 @@ export async function POST(
       );
     }
 
+
+    // ----------------------------------------
+// CSV file size limit
+// ----------------------------------------
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+
+if (file.size > MAX_FILE_SIZE) {
+  return NextResponse.json(
+    {
+      success: false,
+      message: "CSV file must be smaller than 5 MB.",
+    },
+    {
+      status: 413,
+    }
+  );
+}
+
     const csvText =
       await file.text();
 
@@ -206,6 +225,25 @@ export async function POST(
         bom: true,
       }
     ) as CsvRow[];
+
+    // ----------------------------------------
+// CSV row limit
+// ----------------------------------------
+
+const MAX_ROWS = 10000;
+
+if (rows.length > MAX_ROWS) {
+  return NextResponse.json(
+    {
+      success: false,
+      message:
+        `CSV file cannot contain more than ${MAX_ROWS.toLocaleString()} transactions.`,
+    },
+    {
+      status: 413,
+    }
+  );
+}
 
     if (rows.length === 0) {
       return NextResponse.json(
@@ -228,6 +266,9 @@ export async function POST(
 
     const seenFingerprints =
       new Set<string>();
+
+      const existingFingerprints =
+  new Set<string>();
 
     // ----------------------------------------
     // Validate + prepare CSV rows
@@ -323,24 +364,6 @@ export async function POST(
       // Duplicate already in database
       // --------------------------------------
 
-      const existing =
-        await db.bankTransaction.findFirst({
-          where: {
-            businessId:
-              business.id,
-
-            fingerprint,
-          },
-
-          select: {
-            id: true,
-          },
-        });
-
-      if (existing) {
-        duplicates++;
-        continue;
-      }
 
       preparedTransactions.push({
         transactionDate,
@@ -359,6 +382,60 @@ export async function POST(
         fingerprint,
       });
     }
+
+    // ----------------------------------------
+// Check existing database fingerprints
+// in one query instead of one query
+// per CSV row
+// ----------------------------------------
+
+if (preparedTransactions.length > 0) {
+  const fingerprints =
+    preparedTransactions.map(
+      (transaction) =>
+        transaction.fingerprint
+    );
+
+  const existingTransactions =
+    await db.bankTransaction.findMany({
+      where: {
+        businessId: business.id,
+        fingerprint: {
+          in: fingerprints,
+        },
+      },
+      select: {
+        fingerprint: true,
+      },
+    });
+
+  for (const transaction of existingTransactions) {
+    existingFingerprints.add(
+      transaction.fingerprint
+    );
+  }
+
+  const newTransactions =
+    preparedTransactions.filter(
+      (transaction) => {
+        if (
+          existingFingerprints.has(
+            transaction.fingerprint
+          )
+        ) {
+          duplicates++;
+          return false;
+        }
+
+        return true;
+      }
+    );
+
+  preparedTransactions.length = 0;
+  preparedTransactions.push(
+    ...newTransactions
+  );
+}
 
     // ----------------------------------------
     // Monthly plan limit
